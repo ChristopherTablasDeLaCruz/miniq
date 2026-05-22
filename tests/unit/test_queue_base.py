@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+
 from miniq.queue.base import QueueBackend
 from miniq.task import Task
 

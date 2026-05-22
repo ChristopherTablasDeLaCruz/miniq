@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 
 import pytest
+
 from miniq.exceptions import TaskFailed, TaskTimeout
 from miniq.results import ResultBackend
 from miniq.task import AsyncResult, Task, TaskStatus

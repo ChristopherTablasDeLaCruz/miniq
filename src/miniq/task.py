@@ -10,7 +10,7 @@ from __future__ import annotations
 import time
 import uuid
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
 from miniq.exceptions import TaskFailed
@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from miniq.results import ResultBackend
 
 
-class TaskStatus(str, Enum):
+class TaskStatus(StrEnum):
     """Lifecycle states of a task.
 
     The string base class makes statuses JSON-serializable without a
