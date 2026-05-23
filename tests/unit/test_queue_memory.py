@@ -121,3 +121,28 @@ class TestBlockingDequeue:
 
         t.join(timeout=1.0)
         assert holder == [task]
+
+
+class TestAvailableAt:
+    def test_delayed_task_not_claimable_until_available(self) -> None:
+        q = InMemoryQueue()
+        t = Task(func_path="x.y", available_at=time.time() + 0.1)
+        q.enqueue(t)
+        assert q.dequeue() is None
+        time.sleep(0.15)
+        assert q.dequeue() is t
+
+    def test_ready_task_returned_before_delayed_task(self) -> None:
+        q = InMemoryQueue()
+        delayed = Task(func_path="x.y", available_at=time.time() + 10.0)
+        ready = Task(func_path="x.y")
+        q.enqueue(delayed)
+        q.enqueue(ready)
+        assert q.dequeue() is ready
+        assert q.dequeue() is None  # delayed still not ready
+
+    def test_unset_available_at_means_immediately_ready(self) -> None:
+        q = InMemoryQueue()
+        t = Task(func_path="x.y")  # available_at defaults to None
+        q.enqueue(t)
+        assert q.dequeue() is t

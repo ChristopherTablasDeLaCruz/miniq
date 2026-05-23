@@ -58,8 +58,17 @@ class InMemoryQueue(QueueBackend):
             while True:
                 self._reclaim_expired_locked()
 
-                if self._pending:
-                    task = self._pending.popleft()
+                # Find the first task that's ready (available_at in the past or unset).
+                now_wall = time.time()
+                ready_index = None
+                for i, task in enumerate(self._pending):
+                    if task.available_at is None or task.available_at <= now_wall:
+                        ready_index = i
+                        break
+
+                if ready_index is not None:
+                    task = self._pending[ready_index]
+                    del self._pending[ready_index]
                     task.mark_running()
                     self._claimed[task.id] = _Claim(
                         task=task,

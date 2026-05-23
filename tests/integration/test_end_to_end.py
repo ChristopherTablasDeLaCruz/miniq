@@ -99,3 +99,30 @@ def test_get_with_short_timeout_raises() -> None:
 
     with pytest.raises(TaskTimeout):
         result.get(timeout=0.05)
+
+
+def test_flaky_task_succeeds_with_retries() -> None:
+    """A task that fails twice then succeeds, with retry policy, ends in SUCCESS."""
+    from miniq.retry import FixedDelay
+
+    app = Miniq()
+    attempts = [0]
+
+    @app.task(max_retries=3)
+    def flaky() -> str:
+        attempts[0] += 1
+        if attempts[0] < 3:
+            raise RuntimeError("not yet")
+        return "finally"
+
+    result = flaky.delay()
+    worker = app.worker(
+        retry_policy=FixedDelay(delay_seconds=0.0),
+        poll_wait_seconds=0.1,
+    )
+    for _ in range(10):
+        if not worker.run_once():
+            break
+
+    assert result.get(timeout=1.0) == "finally"
+    assert attempts[0] == 3

@@ -59,6 +59,7 @@ class Task:
     created_at: float = field(default_factory=time.time)
     started_at: float | None = None
     finished_at: float | None = None
+    available_at: float | None = None
 
     result: Any = None
     error: str | None = None

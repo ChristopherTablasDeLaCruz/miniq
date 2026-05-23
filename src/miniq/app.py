@@ -26,22 +26,27 @@ class TaskWrapper:
     AsyncResult handle.
     """
 
-    def __init__(self, func: Callable[..., Any], app: Miniq) -> None:
+    def __init__(
+        self,
+        func: Callable[..., Any],
+        app: Miniq,
+        max_retries: int = 0,
+    ) -> None:
         self._func = func
         self._app = app
+        self._max_retries = max_retries
         self.func_path = f"{func.__module__}.{func.__qualname__}"
 
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
-        """Run the underlying function synchronously."""
         return self._func(*args, **kwargs)
 
     def delay(self, *args: Any, **kwargs: Any) -> AsyncResult:
-        """Enqueue the task for asynchronous execution.
-
-        Returns an AsyncResult that callers can use to block on .get()
-        until the task finishes.
-        """
-        task = Task(func_path=self.func_path, args=args, kwargs=kwargs)
+        task = Task(
+            func_path=self.func_path,
+            args=args,
+            kwargs=kwargs,
+            max_retries=self._max_retries,
+        )
         self._app.queue.enqueue(task)
         return AsyncResult(task_id=task.id, backend=self._app.results)
 
@@ -62,11 +67,33 @@ class Miniq:
         self.queue: QueueBackend = queue if queue is not None else InMemoryQueue()
         self.results: ResultBackend = results if results is not None else InMemoryResultBackend()
 
-    def task(self, func: Callable[..., Any]) -> TaskWrapper:
-        """Decorator that registers 'func' as a task in this app."""
-        wrapper = TaskWrapper(func, self)
-        register(wrapper.func_path, func)
-        return wrapper
+    def task(
+        self,
+        func: Callable[..., Any] | None = None,
+        *,
+        max_retries: int = 0,
+    ) -> TaskWrapper | Callable[[Callable[..., Any]], TaskWrapper]:
+        """Decorator that registers a function as a task.
+
+        Usable two ways::
+
+            @app.task
+            def f(...): ...
+
+            @app.task(max_retries=3)
+            def f(...): ...
+        """
+
+        def decorator(f: Callable[..., Any]) -> TaskWrapper:
+            wrapper = TaskWrapper(f, self, max_retries=max_retries)
+            register(wrapper.func_path, f)
+            return wrapper
+
+        if func is None:
+            # Called as @app.task(...) with arguments.
+            return decorator
+        # Called as @app.task without arguments.
+        return decorator(func)
 
     def worker(self, **kwargs: Any) -> Worker:
         """Create a Worker bound to this app's queue and result backend."""

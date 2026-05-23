@@ -79,3 +79,35 @@ class TestMiniq:
         result = add.delay(2, 3)
         worker.run_once()
         assert result.get(timeout=1.0) == 5
+
+
+class TestTaskDecoratorArgs:
+    def test_bare_decorator_sets_max_retries_zero(self) -> None:
+        app = Miniq()
+
+        @app.task
+        def f() -> int:
+            return 1
+
+        assert f._max_retries == 0  # type: ignore[attr-defined]
+
+    def test_decorator_with_max_retries(self) -> None:
+        app = Miniq()
+
+        @app.task(max_retries=3)
+        def f() -> int:
+            return 1
+
+        assert f._max_retries == 3  # type: ignore[attr-defined]
+
+    def test_max_retries_propagates_to_task(self) -> None:
+        app = Miniq()
+
+        @app.task(max_retries=5)
+        def f() -> int:
+            return 1
+
+        f.delay()
+        # The enqueued task should carry max_retries
+        enqueued = next(iter(app.queue._pending))  # type: ignore[attr-defined]
+        assert enqueued.max_retries == 5

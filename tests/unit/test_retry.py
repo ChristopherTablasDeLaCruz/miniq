@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 
 from miniq.retry import (
     ExponentialBackoff,
@@ -89,3 +91,55 @@ class TestJitteredBackoff:
         policy = JitteredBackoff(inner=inner, jitter_fraction=1.0)
         for _ in range(100):
             assert policy.next_delay(1) >= 0.0
+
+
+class TestExponentialBackoffProperties:
+    @given(
+        base=st.floats(min_value=0.001, max_value=5.0),
+        factor=st.floats(min_value=1.0, max_value=10.0),
+        max_delay=st.floats(min_value=10.0, max_value=1000.0),
+    )
+    def test_monotonically_increasing_until_max(
+        self, base: float, factor: float, max_delay: float
+    ) -> None:
+        policy = ExponentialBackoff(base_seconds=base, factor=factor, max_delay_seconds=max_delay)
+        delays = [policy.next_delay(attempt) for attempt in range(1, 10)]
+        for i in range(len(delays) - 1):
+            if delays[i] < max_delay:
+                assert delays[i + 1] >= delays[i]
+
+    @given(
+        base=st.floats(min_value=0.001, max_value=5.0),
+        factor=st.floats(min_value=1.0, max_value=10.0),
+        max_delay=st.floats(min_value=10.0, max_value=1000.0),
+        attempt=st.integers(min_value=1, max_value=100),
+    )
+    def test_bounded_by_max_delay(
+        self, base: float, factor: float, max_delay: float, attempt: int
+    ) -> None:
+        policy = ExponentialBackoff(base_seconds=base, factor=factor, max_delay_seconds=max_delay)
+        assert policy.next_delay(attempt) <= max_delay
+
+    @given(
+        base=st.floats(min_value=0.1, max_value=5.0),
+        attempt=st.integers(min_value=1, max_value=5),
+    )
+    def test_first_attempt_equals_base(self, base: float, attempt: int) -> None:
+        # When factor=1, every delay equals base (regardless of attempt number).
+        policy = ExponentialBackoff(base_seconds=base, factor=1.0, max_delay_seconds=1000)
+        assert policy.next_delay(attempt) == base
+
+
+class TestJitteredBackoffProperties:
+    @given(
+        base=st.floats(min_value=0.1, max_value=10.0),
+        jitter=st.floats(min_value=0.0, max_value=1.0),
+        attempt=st.integers(min_value=1, max_value=10),
+    )
+    def test_delay_within_jitter_bounds(self, base: float, jitter: float, attempt: int) -> None:
+        inner = FixedDelay(delay_seconds=base)
+        policy = JitteredBackoff(inner=inner, jitter_fraction=jitter)
+        for _ in range(10):
+            delay = policy.next_delay(attempt)
+            assert delay >= 0.0
+            assert delay <= base * (1.0 + jitter) + 1e-9
