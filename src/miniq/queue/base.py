@@ -116,3 +116,10 @@ class QueueBackend(ABC):
         worker. The task may be in any state including completed or
         failed, if the backend retains them after ack.
         """
+
+    def close(self) -> None:  # noqa: B027
+        """Release any resources held by the backend. Default: no-op.
+
+        Backends with persistent connections (e.g. SQLiteQueue) override
+        this to close the connection cleanly.
+        """

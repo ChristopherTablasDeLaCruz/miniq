@@ -30,7 +30,8 @@ from miniq.exceptions import (
 )
 from miniq.queue.base import QueueBackend
 from miniq.queue.memory import InMemoryQueue
-from miniq.results import InMemoryResultBackend, ResultBackend
+from miniq.queue.sqlite import SQLiteQueue
+from miniq.results import InMemoryResultBackend, ResultBackend, SQLiteResultBackend
 from miniq.retry import (
     ExponentialBackoff,
     FixedDelay,
@@ -61,6 +62,8 @@ __all__ = [
     "QueueFull",
     "ResultBackend",
     "RetryPolicy",
+    "SQLiteQueue",
+    "SQLiteResultBackend",
     "SerializationError",
     "Serializer",
     "Task",
