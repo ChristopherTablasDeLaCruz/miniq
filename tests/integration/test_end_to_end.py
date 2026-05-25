@@ -8,6 +8,7 @@ implementations.
 from __future__ import annotations
 
 import threading
+import time
 from collections.abc import Generator
 from pathlib import Path
 
@@ -129,3 +130,29 @@ def test_flaky_task_succeeds_with_retries(app: Miniq) -> None:
 
     assert result.get(timeout=2.0) == "finally"
     assert attempts[0] == 3
+
+
+def test_scheduled_task_runs_after_delay(app: Miniq) -> None:
+    """A task scheduled with countdown is not executed until the time arrives."""
+
+    @app.task
+    def get_value() -> int:
+        return 42
+
+    start = time.monotonic()
+    result = get_value.schedule(countdown=0.3)
+    worker = app.worker(poll_wait_seconds=0.05)
+
+    # Poll until the task is processed or we time out.
+    deadline = time.monotonic() + 3.0
+    processed = False
+    while time.monotonic() < deadline:
+        if worker.run_once():
+            processed = True
+            break
+
+    elapsed = time.monotonic() - start
+
+    assert processed, "scheduled task never processed"
+    assert elapsed >= 0.25, f"task ran too early ({elapsed:.2f}s)"
+    assert result.get(timeout=1.0) == 42

@@ -146,3 +146,36 @@ class TestAvailableAt:
         t = Task(func_path="x.y")  # available_at defaults to None
         q.enqueue(t)
         assert q.dequeue() is t
+
+
+class TestPriority:
+    def test_higher_priority_dequeued_first(self) -> None:
+        q = InMemoryQueue()
+        low = Task(func_path="x.y.low", priority=0)
+        high = Task(func_path="x.y.high", priority=10)
+        q.enqueue(low)
+        q.enqueue(high)
+        assert q.dequeue() is high
+        assert q.dequeue() is low
+
+    def test_fifo_within_same_priority(self) -> None:
+        q = InMemoryQueue()
+        tasks = [Task(func_path=f"x.y.{i}", priority=5) for i in range(3)]
+        for t in tasks:
+            q.enqueue(t)
+        for expected in tasks:
+            assert q.dequeue() is expected
+
+    def test_mixed_priorities_strictly_ordered(self) -> None:
+        q = InMemoryQueue()
+        a = Task(func_path="x.a", priority=1)
+        b = Task(func_path="x.b", priority=5)
+        c = Task(func_path="x.c", priority=3)
+        # Enqueue in arbitrary order
+        q.enqueue(a)
+        q.enqueue(b)
+        q.enqueue(c)
+        # Dequeue order: b (5), c (3), a (1)
+        assert q.dequeue() is b
+        assert q.dequeue() is c
+        assert q.dequeue() is a

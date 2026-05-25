@@ -55,6 +55,7 @@ class Task:
 
     retries: int = 0
     max_retries: int = 0
+    priority: int = 0
 
     created_at: float = field(default_factory=time.time)
     started_at: float | None = None
@@ -85,7 +86,7 @@ class Task:
 class AsyncResult:
     """A handle to a task's eventual outcome.
 
-    Returned by 'Task.delay()' (Phase 2). Callers use 'get()' to
+    Returned by 'Task.delay()'. Callers use 'get()' to
     block until the task finishes and either receive its return value
     or have its exception re-raised as a 'TaskFailed'.
     """

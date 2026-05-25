@@ -1,7 +1,7 @@
 """Tests for SQLiteQueue.
 
 The test surface mirrors test_queue_memory.py because both backends must
-satisfy the same QueueBackend contract. In Phase 4 Drop 2 we parametrize
+satisfy the same QueueBackend contract. We parametrize
 these tests so the same bodies run against both backends.
 """
 
@@ -188,3 +188,39 @@ class TestPersistence:
         assert claimed.args == ("hello", 42, [1, 2])
         assert claimed.kwargs == {"verbose": True, "items": [1, 2, 3]}
         assert claimed.max_retries == 3
+
+
+class TestPriority:
+    def test_higher_priority_dequeued_first(self, queue: SQLiteQueue) -> None:
+        low = Task(func_path="x.low", priority=0)
+        high = Task(func_path="x.high", priority=10)
+        queue.enqueue(low)
+        queue.enqueue(high)
+        first = queue.dequeue()
+        second = queue.dequeue()
+        assert first is not None and first.id == high.id
+        assert second is not None and second.id == low.id
+
+    def test_fifo_within_same_priority(self, queue: SQLiteQueue) -> None:
+        tasks = [Task(func_path=f"x.{i}", priority=5) for i in range(3)]
+        for t in tasks:
+            queue.enqueue(t)
+        for expected in tasks:
+            claimed = queue.dequeue()
+            assert claimed is not None
+            assert claimed.id == expected.id
+
+    def test_priority_survives_persistence(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "test.db"
+        q1 = SQLiteQueue(db_path)
+        task = Task(func_path="x.y", priority=7)
+        q1.enqueue(task)
+        q1.close()
+
+        q2 = SQLiteQueue(db_path)
+        try:
+            stored = q2.get_task(task.id)
+            assert stored is not None
+            assert stored.priority == 7
+        finally:
+            q2.close()

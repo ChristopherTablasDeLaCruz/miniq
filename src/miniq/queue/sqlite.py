@@ -37,7 +37,7 @@ from miniq.queue.base import QueueBackend
 from miniq.serializers import JSONSerializer, Serializer
 from miniq.task import Task, TaskStatus
 
-_SCHEMA = """
+_SCHEMA = _SCHEMA = """
 CREATE TABLE IF NOT EXISTS tasks (
     id TEXT PRIMARY KEY,
     func_path TEXT NOT NULL,
@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     status TEXT NOT NULL DEFAULT 'pending',
     retries INTEGER NOT NULL DEFAULT 0,
     max_retries INTEGER NOT NULL DEFAULT 0,
+    priority INTEGER NOT NULL DEFAULT 0,
     created_at REAL NOT NULL,
     started_at REAL,
     finished_at REAL,
@@ -55,8 +56,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     error TEXT
 );
 
-CREATE INDEX IF NOT EXISTS idx_tasks_status_available
-    ON tasks (status, available_at, created_at);
+CREATE INDEX IF NOT EXISTS idx_tasks_dequeue
+    ON tasks (status, priority, available_at, created_at);
 
 CREATE INDEX IF NOT EXISTS idx_tasks_status_claimed_until
     ON tasks (status, claimed_until);
@@ -95,6 +96,14 @@ class SQLiteQueue(QueueBackend):
     def _initialize_schema(self) -> None:
         with self._lock:
             self._conn.executescript(_SCHEMA)
+            # Migration: priority column was added after the initial schema.
+            # If an existing database doesn't have it, add it now.
+            cursor = self._conn.execute("PRAGMA table_info(tasks)")
+            columns = {row[1] for row in cursor.fetchall()}
+            if "priority" not in columns:
+                self._conn.execute(
+                    "ALTER TABLE tasks ADD COLUMN priority INTEGER NOT NULL DEFAULT 0"
+                )
 
     @contextlib.contextmanager
     def _transaction(self, immediate: bool = False) -> Iterator[None]:
@@ -121,9 +130,9 @@ class SQLiteQueue(QueueBackend):
                 """
                 INSERT INTO tasks (
                     id, func_path, args_json, kwargs_json,
-                    status, retries, max_retries,
+                    status, retries, max_retries, priority,
                     created_at, available_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     task.id,
@@ -133,6 +142,7 @@ class SQLiteQueue(QueueBackend):
                     task.status.value,
                     task.retries,
                     task.max_retries,
+                    task.priority,
                     task.created_at,
                     task.available_at,
                 ),
@@ -175,8 +185,8 @@ class SQLiteQueue(QueueBackend):
                         """
                         SELECT * FROM tasks
                         WHERE status = ?
-                          AND (available_at IS NULL OR available_at <= ?)
-                        ORDER BY created_at
+                        AND (available_at IS NULL OR available_at <= ?)
+                        ORDER BY priority DESC, created_at ASC
                         LIMIT 1
                         """,
                         (TaskStatus.PENDING.value, now),
@@ -295,6 +305,7 @@ class SQLiteQueue(QueueBackend):
             status=TaskStatus(row["status"]),
             retries=row["retries"],
             max_retries=row["max_retries"],
+            priority=row["priority"],
             created_at=row["created_at"],
             started_at=row["started_at"],
             finished_at=row["finished_at"],

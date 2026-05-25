@@ -24,8 +24,8 @@ running the same task twice must not produce incorrect results.
 
 Implementations
 ---------------
-- InMemoryQueue (Phase 2): thread-safe in-memory, for development and tests.
-- SQLiteQueue (Phase 4): persistent, survives process restarts, supports
+- InMemoryQueue: thread-safe in-memory, for development and tests.
+- SQLiteQueue: persistent, survives process restarts, supports
   multiple worker processes on the same host.
 - RedisQueue (stretch): for multi-host deployments.
 """

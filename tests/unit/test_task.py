@@ -80,7 +80,7 @@ class TestTaskTransitions:
 class _FakeBackend(ResultBackend):
     """Minimal in-memory stand-in for ResultBackend used in AsyncResult tests.
 
-    Avoids pulling in the real in-memory backend (which arrives in Phase 2)
+    Avoids pulling in the real in-memory backend
     while still satisfying the ABC. 'wait' returns the preset task or
     raises TaskTimeout if none is set.
     """

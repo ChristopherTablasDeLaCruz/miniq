@@ -28,6 +28,7 @@ from miniq.exceptions import (
     TaskNotRegistered,
     TaskTimeout,
 )
+from miniq.pool import WorkerPool
 from miniq.queue.base import QueueBackend
 from miniq.queue.memory import InMemoryQueue
 from miniq.queue.sqlite import SQLiteQueue
@@ -74,5 +75,6 @@ __all__ = [
     "TaskTimeout",
     "TaskWrapper",
     "Worker",
+    "WorkerPool",
     "__version__",
 ]
