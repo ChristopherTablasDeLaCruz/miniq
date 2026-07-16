@@ -15,8 +15,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from miniq import Miniq, SQLiteQueue, SQLiteResultBackend
-from miniq.retry import ExponentialBackoff
+from miniq import ExponentialBackoff, Miniq, SQLiteQueue, SQLiteResultBackend
 
 DB_PATH = "/tmp/miniq_realistic.db"
 
