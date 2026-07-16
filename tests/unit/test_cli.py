@@ -125,3 +125,81 @@ class TestDlqReplay:
 
         err = capsys.readouterr().err
         assert "no failed task" in err.lower()
+
+
+def _status_counts(db_path: Path) -> dict[str, int]:
+    conn = sqlite3.connect(str(db_path))
+    try:
+        rows = conn.execute("SELECT status, COUNT(*) FROM tasks GROUP BY status").fetchall()
+        return dict(rows)
+    finally:
+        conn.close()
+
+
+class TestPurge:
+    def test_purges_succeeded_keeps_failed_and_pending(
+        self, db_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        rc = main(["purge", "--db", str(db_path)])
+        assert rc == 0
+
+        out = capsys.readouterr().out
+        assert "Purged 1 task(s)" in out
+
+        counts = _status_counts(db_path)
+        assert TaskStatus.SUCCESS.value not in counts
+        assert counts[TaskStatus.FAILED.value] == 1  # DLQ kept for inspection
+        assert counts[TaskStatus.PENDING.value] == 2
+
+    def test_include_failed_purges_dlq_too(self, db_path: Path) -> None:
+        rc = main(["purge", "--include-failed", "--db", str(db_path)])
+        assert rc == 0
+
+        counts = _status_counts(db_path)
+        assert TaskStatus.SUCCESS.value not in counts
+        assert TaskStatus.FAILED.value not in counts
+        assert counts[TaskStatus.PENDING.value] == 2
+
+    def test_older_than_keeps_recent_entries(self, db_path: Path) -> None:
+        # Everything in the fixture finished moments ago, so a 1-hour
+        # retention window purges nothing.
+        rc = main(["purge", "--older-than", "3600", "--db", str(db_path)])
+        assert rc == 0
+
+        counts = _status_counts(db_path)
+        assert counts[TaskStatus.SUCCESS.value] == 1
+        assert counts[TaskStatus.FAILED.value] == 1
+
+    def test_purges_stored_results_when_backends_share_db(
+        self, db_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        from miniq.results import SQLiteResultBackend
+        from miniq.task import Task
+
+        backend = SQLiteResultBackend(str(db_path))
+        task = Task(func_path="x.success")
+        task.mark_success(result=42)
+        backend.store(task)
+        backend.close()
+
+        rc = main(["purge", "--db", str(db_path)])
+        assert rc == 0
+
+        out = capsys.readouterr().out
+        assert "1 stored result(s)" in out
+
+        conn = sqlite3.connect(str(db_path))
+        try:
+            remaining = conn.execute("SELECT COUNT(*) FROM task_results").fetchone()[0]
+        finally:
+            conn.close()
+        assert remaining == 0
+
+    def test_missing_db_returns_error(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        rc = main(["purge", "--db", str(tmp_path / "nope.db")])
+        assert rc == 1
+
+        err = capsys.readouterr().err
+        assert "not found" in err.lower()

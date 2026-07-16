@@ -6,6 +6,7 @@ Usage examples::
     miniq status --db ./miniq.db
     miniq dlq list --db ./miniq.db
     miniq dlq replay <task_id> --db ./miniq.db
+    miniq purge --db ./miniq.db --older-than 86400
 
 The CLI assumes a SQLite-backed queue. Other backends are programmatic-only
 and don't go through the CLI.
@@ -19,6 +20,7 @@ import signal
 import sqlite3
 import sys
 import threading
+import time
 from functools import partial
 from pathlib import Path
 from typing import Any
@@ -42,6 +44,7 @@ def cmd_worker(args: argparse.Namespace) -> int:
         results_factory=partial(SQLiteResultBackend, args.db),
         workers=args.workers,
         task_modules=task_modules,
+        visibility_timeout=args.visibility_timeout,
         poll_wait_seconds=args.poll_interval,
     )
 
@@ -172,6 +175,46 @@ def cmd_dlq_replay(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_purge(args: argparse.Namespace) -> int:
+    """Delete finished tasks and their stored results."""
+    if not Path(args.db).exists():
+        print(f"Error: database not found: {args.db}", file=sys.stderr)
+        return 1
+
+    cutoff = time.time() - args.older_than
+    statuses = [TaskStatus.SUCCESS.value]
+    if args.include_failed:
+        statuses.append(TaskStatus.FAILED.value)
+    placeholders = ", ".join("?" for _ in statuses)
+
+    conn = sqlite3.connect(args.db)
+    try:
+        cursor = conn.execute(
+            f"DELETE FROM tasks WHERE status IN ({placeholders}) "
+            "AND finished_at IS NOT NULL AND finished_at <= ?",
+            (*statuses, cutoff),
+        )
+        tasks_deleted = cursor.rowcount
+
+        # The result backend may share this file; purge its table too if present.
+        results_deleted = 0
+        has_results_table = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'task_results'"
+        ).fetchone()
+        if has_results_table:
+            cursor = conn.execute(
+                f"DELETE FROM task_results WHERE status IN ({placeholders}) AND stored_at <= ?",
+                (*statuses, cutoff),
+            )
+            results_deleted = cursor.rowcount
+        conn.commit()
+    finally:
+        conn.close()
+
+    print(f"Purged {tasks_deleted} task(s) and {results_deleted} stored result(s).")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="miniq",
@@ -205,6 +248,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Worker poll interval in seconds (default: 1.0)",
     )
     p.add_argument(
+        "--visibility-timeout",
+        type=float,
+        default=30.0,
+        help=(
+            "Seconds a claimed task is reserved before it can be reclaimed by "
+            "another worker; must exceed your longest task's runtime (default: 30)"
+        ),
+    )
+    p.add_argument(
         "--shutdown-timeout",
         type=float,
         default=30.0,
@@ -230,6 +282,24 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("task_id", help="ID of the failed task to replay")
     p.add_argument("--db", required=True)
     p.set_defaults(func=cmd_dlq_replay)
+
+    p = subparsers.add_parser(
+        "purge",
+        help="Delete finished tasks and stored results",
+    )
+    p.add_argument("--db", required=True, help="Path to the SQLite database")
+    p.add_argument(
+        "--older-than",
+        type=float,
+        default=0.0,
+        help="Only purge entries finished more than this many seconds ago (default: 0, purge all)",
+    )
+    p.add_argument(
+        "--include-failed",
+        action="store_true",
+        help="Also purge failed (dead-letter) tasks instead of keeping them for inspection",
+    )
+    p.set_defaults(func=cmd_purge)
 
     return parser
 
