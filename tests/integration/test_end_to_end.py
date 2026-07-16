@@ -25,7 +25,7 @@ def reset_registry() -> None:
 
 
 @pytest.fixture(params=["memory", "sqlite"])
-def app(request: pytest.FixtureRequest, tmp_path: Path) -> Generator[Miniq, None, None]:
+def app(request: pytest.FixtureRequest, tmp_path: Path) -> Generator[Miniq]:
     if request.param == "memory":
         instance = Miniq()
         yield instance
