@@ -5,11 +5,16 @@ function in the registry, executes it, stores the result in a
 ResultBackend, and acks the task. On failure, the Worker consults its
 RetryPolicy:
 
-  - If the task has retries remaining and the policy permits a delay,
+  - If the task has retries remaining and the policy returns a delay,
     increment retries, set available_at to now + delay, and nack with
     requeue=True. The task becomes claimable again after the delay.
-  - Otherwise (out of retries or policy refuses), mark the task failed,
-    store the result, and nack with requeue=False to send to the DLQ.
+  - Otherwise (out of retries or policy returns None), mark the task
+    failed, store the result, and nack with requeue=False to send to
+    the DLQ.
+
+The default policy is ExponentialBackoff, so a task declared with
+@app.task(max_retries=N) is retried up to N times out of the box.
+Pass NoRetry() to disable retries regardless of max_retries.
 """
 
 from __future__ import annotations
@@ -22,7 +27,7 @@ from miniq.exceptions import TaskNotRegistered
 from miniq.queue.base import QueueBackend
 from miniq.registry import lookup
 from miniq.results import ResultBackend
-from miniq.retry import NoRetry, RetryPolicy
+from miniq.retry import ExponentialBackoff, RetryPolicy
 from miniq.task import Task
 
 logger = logging.getLogger(__name__)
@@ -41,7 +46,9 @@ class Worker:
     ) -> None:
         self._queue = queue
         self._results = results
-        self._retry_policy: RetryPolicy = retry_policy if retry_policy is not None else NoRetry()
+        self._retry_policy: RetryPolicy = (
+            retry_policy if retry_policy is not None else ExponentialBackoff()
+        )
         self._visibility_timeout = visibility_timeout
         self._poll_wait_seconds = poll_wait_seconds
         self._stop_event = threading.Event()
@@ -77,12 +84,8 @@ class Worker:
         logger.warning("Task %s failed: %s", task.id, error_message)
 
         if task.retries < task.max_retries:
-            try:
-                delay = self._retry_policy.next_delay(task.retries + 1)
-            except ValueError:
-                # NoRetry (or any policy that refuses) raises; fall through to DLQ.
-                pass
-            else:
+            delay = self._retry_policy.next_delay(task.retries + 1)
+            if delay is not None:
                 task.retries += 1
                 task.available_at = time.time() + delay
                 # Don't store the result yet; the task isn't finished.

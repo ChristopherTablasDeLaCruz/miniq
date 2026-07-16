@@ -22,10 +22,10 @@ class TestRetryPolicy:
 
 
 class TestNoRetry:
-    def test_always_raises(self) -> None:
+    def test_declines_every_retry(self) -> None:
         policy = NoRetry()
-        with pytest.raises(ValueError):
-            policy.next_delay(1)
+        assert policy.next_delay(1) is None
+        assert policy.next_delay(5) is None
 
 
 class TestFixedDelay:
@@ -90,7 +90,14 @@ class TestJitteredBackoff:
         inner = FixedDelay(delay_seconds=0.1)
         policy = JitteredBackoff(inner=inner, jitter_fraction=1.0)
         for _ in range(100):
-            assert policy.next_delay(1) >= 0.0
+            delay = policy.next_delay(1)
+            assert delay is not None
+            assert delay >= 0.0
+
+    def test_propagates_inner_decline(self) -> None:
+        # Wrapping NoRetry declines too, rather than jittering None.
+        policy = JitteredBackoff(inner=NoRetry())
+        assert policy.next_delay(1) is None
 
 
 class TestExponentialBackoffProperties:

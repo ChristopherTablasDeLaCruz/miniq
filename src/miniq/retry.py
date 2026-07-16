@@ -19,28 +19,30 @@ class RetryPolicy(ABC):
 
     Subclasses define how long to wait before retry attempt N. The Worker
     is responsible for tracking attempt counts and respecting max_retries.
-    A policy is asked only for the delay; whether to retry at all is a
-    separate concern (NoRetry encodes "never retry" by raising).
+    A policy returns a delay in seconds, or None to decline the retry
+    entirely (the task then goes to the dead-letter queue).
     """
 
     @abstractmethod
-    def next_delay(self, attempt: int) -> float:
-        """Return the delay in seconds before retry attempt number 'attempt'.
+    def next_delay(self, attempt: int) -> float | None:
+        """Return the delay in seconds before retry attempt number 'attempt',
+        or None to decline the retry.
 
         'attempt' is 1-indexed: attempt=1 means the first retry (i.e. the
-        original execution already failed once). Implementations may raise
-        ValueError if attempt is < 1.
+        original execution already failed once). Implementations raise
+        ValueError if attempt is < 1; that signals a caller bug, not a
+        policy decision.
         """
 
 
 class NoRetry(RetryPolicy):
-    """Never retry. 'next_delay' always raises.
+    """Never retry. 'next_delay' always declines.
 
     Use this when a task should fail permanently on first error.
     """
 
-    def next_delay(self, attempt: int) -> float:
-        raise ValueError("NoRetry policy does not permit retries")
+    def next_delay(self, attempt: int) -> float | None:
+        return None
 
 
 class FixedDelay(RetryPolicy):
@@ -55,7 +57,7 @@ class FixedDelay(RetryPolicy):
             raise ValueError("delay_seconds must be non-negative")
         self.delay_seconds = delay_seconds
 
-    def next_delay(self, attempt: int) -> float:
+    def next_delay(self, attempt: int) -> float | None:
         if attempt < 1:
             raise ValueError("attempt must be >= 1")
         return self.delay_seconds
@@ -86,7 +88,7 @@ class ExponentialBackoff(RetryPolicy):
         self.factor = factor
         self.max_delay_seconds = max_delay_seconds
 
-    def next_delay(self, attempt: int) -> float:
+    def next_delay(self, attempt: int) -> float | None:
         if attempt < 1:
             raise ValueError("attempt must be >= 1")
         delay = self.base_seconds * (self.factor ** (attempt - 1))
@@ -115,7 +117,9 @@ class JitteredBackoff(RetryPolicy):
         self.inner = inner
         self.jitter_fraction = jitter_fraction
 
-    def next_delay(self, attempt: int) -> float:
+    def next_delay(self, attempt: int) -> float | None:
         base = self.inner.next_delay(attempt)
+        if base is None:
+            return None
         spread = base * self.jitter_fraction
         return max(0.0, base + random.uniform(-spread, spread))

@@ -10,7 +10,7 @@ import pytest
 from miniq.queue.memory import InMemoryQueue
 from miniq.registry import clear, register
 from miniq.results import InMemoryResultBackend
-from miniq.retry import FixedDelay
+from miniq.retry import FixedDelay, NoRetry
 from miniq.task import Task, TaskStatus
 from miniq.worker import Worker
 
@@ -159,11 +159,42 @@ class TestWorkerRetries:
         assert stored.status is TaskStatus.FAILED
         assert attempts[0] == 3  # 1 initial + 2 retries
 
+    def test_default_policy_honors_max_retries(self) -> None:
+        """A default-configured worker retries tasks declared with max_retries.
+
+        This is the contract the @app.task(max_retries=N) API promises: no
+        extra worker configuration should be needed for retries to happen.
+        """
+        queue = InMemoryQueue()
+        results = InMemoryResultBackend()
+        worker = Worker(queue=queue, results=results, poll_wait_seconds=0.1)
+
+        def fails() -> None:
+            raise RuntimeError("nope")
+
+        register("test.fails_default", fails)
+        task = Task(func_path="test.fails_default", max_retries=1)
+        queue.enqueue(task)
+
+        worker.run_once()
+
+        # Not dead-lettered: the default policy scheduled a retry instead.
+        assert results.get(task.id) is None
+        assert queue.size() == 1
+        assert task.retries == 1
+        assert task.available_at is not None
+        assert task.available_at > time.time()
+
     def test_no_retries_when_policy_is_noretry(self) -> None:
         queue = InMemoryQueue()
         results = InMemoryResultBackend()
-        # default retry_policy is NoRetry
-        worker = Worker(queue=queue, results=results, poll_wait_seconds=0.1)
+        # NoRetry vetoes retries even when the task declares max_retries.
+        worker = Worker(
+            queue=queue,
+            results=results,
+            retry_policy=NoRetry(),
+            poll_wait_seconds=0.1,
+        )
 
         attempts = [0]
 
