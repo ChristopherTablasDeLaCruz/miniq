@@ -25,8 +25,6 @@ from typing import Any
 
 from miniq.task import TaskStatus
 
-logger = logging.getLogger(__name__)
-
 
 def cmd_worker(args: argparse.Namespace) -> int:
     """Run a worker pool against a SQLite-backed queue."""
@@ -44,7 +42,7 @@ def cmd_worker(args: argparse.Namespace) -> int:
         results_factory=partial(SQLiteResultBackend, args.db),
         workers=args.workers,
         task_modules=task_modules,
-        worker_kwargs={"poll_wait_seconds": args.poll_interval},
+        poll_wait_seconds=args.poll_interval,
     )
 
     print(f"miniq: starting {args.workers} worker(s) against {args.db}")

@@ -16,6 +16,7 @@ from miniq.queue.base import QueueBackend
 from miniq.queue.memory import InMemoryQueue
 from miniq.registry import register
 from miniq.results import InMemoryResultBackend, ResultBackend
+from miniq.retry import RetryPolicy
 from miniq.task import AsyncResult, Task
 from miniq.worker import Worker
 
@@ -23,7 +24,10 @@ from miniq.worker import Worker
 class TaskWrapper:
     """A function wrapped by @app.task.
 
-    ... (docstring stays)
+    Calling the wrapper directly runs the function synchronously, like an
+    ordinary call. Use 'delay()' to enqueue it for background execution,
+    or 'schedule()' to enqueue with a countdown, an absolute time, or a
+    priority override.
     """
 
     def __init__(
@@ -133,6 +137,17 @@ class Miniq:
             return decorator
         return decorator(func)
 
-    def worker(self, **kwargs: Any) -> Worker:
+    def worker(
+        self,
+        retry_policy: RetryPolicy | None = None,
+        visibility_timeout: float = 30.0,
+        poll_wait_seconds: float = 1.0,
+    ) -> Worker:
         """Create a Worker bound to this app's queue and result backend."""
-        return Worker(queue=self.queue, results=self.results, **kwargs)
+        return Worker(
+            queue=self.queue,
+            results=self.results,
+            retry_policy=retry_policy,
+            visibility_timeout=visibility_timeout,
+            poll_wait_seconds=poll_wait_seconds,
+        )

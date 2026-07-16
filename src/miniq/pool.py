@@ -45,7 +45,6 @@ import signal
 import time
 from collections.abc import Callable
 from types import FrameType
-from typing import Any
 
 from miniq.queue.base import QueueBackend
 from miniq.results import ResultBackend
@@ -60,7 +59,8 @@ def _worker_process_entry(
     results_factory: Callable[[], ResultBackend],
     retry_policy: RetryPolicy | None,
     task_modules: list[str],
-    worker_kwargs: dict[str, Any],
+    visibility_timeout: float,
+    poll_wait_seconds: float,
 ) -> None:
     """Entry point that runs inside each spawned worker process.
 
@@ -79,7 +79,8 @@ def _worker_process_entry(
         queue=queue,
         results=results,
         retry_policy=retry_policy,
-        **worker_kwargs,
+        visibility_timeout=visibility_timeout,
+        poll_wait_seconds=poll_wait_seconds,
     )
 
     def handle_signal(signum: int, _frame: FrameType | None) -> None:
@@ -114,7 +115,8 @@ class WorkerPool:
         workers: int = 4,
         retry_policy: RetryPolicy | None = None,
         task_modules: list[str] | None = None,
-        worker_kwargs: dict[str, Any] | None = None,
+        visibility_timeout: float = 30.0,
+        poll_wait_seconds: float = 1.0,
     ) -> None:
         if workers < 1:
             raise ValueError("workers must be >= 1")
@@ -124,7 +126,8 @@ class WorkerPool:
         self._workers_count = workers
         self._retry_policy = retry_policy
         self._task_modules = task_modules if task_modules is not None else []
-        self._worker_kwargs = worker_kwargs if worker_kwargs is not None else {}
+        self._visibility_timeout = visibility_timeout
+        self._poll_wait_seconds = poll_wait_seconds
 
         self._ctx = mp.get_context("spawn")
         self._processes: list[mp.process.BaseProcess] = []
@@ -143,7 +146,8 @@ class WorkerPool:
                     self._results_factory,
                     self._retry_policy,
                     self._task_modules,
-                    self._worker_kwargs,
+                    self._visibility_timeout,
+                    self._poll_wait_seconds,
                 ),
                 name=f"miniq-worker-{i}",
                 daemon=False,

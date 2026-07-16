@@ -49,7 +49,7 @@ def test_pool_processes_all_enqueued_tasks(tmp_path: Path) -> None:
         results_factory=partial(SQLiteResultBackend, db_path),
         workers=2,
         task_modules=["tests.integration._pool_tasks"],
-        worker_kwargs={"poll_wait_seconds": 0.05},
+        poll_wait_seconds=0.05,
     )
 
     with pool:
@@ -77,7 +77,7 @@ def test_pool_stop_terminates_workers(tmp_path: Path) -> None:
         results_factory=partial(SQLiteResultBackend, db_path),
         workers=2,
         task_modules=["tests.integration._pool_tasks"],
-        worker_kwargs={"poll_wait_seconds": 0.05},
+        poll_wait_seconds=0.05,
     )
 
     pool.start()
@@ -98,7 +98,7 @@ def test_pool_context_manager_starts_and_stops(tmp_path: Path) -> None:
         results_factory=partial(SQLiteResultBackend, db_path),
         workers=2,
         task_modules=["tests.integration._pool_tasks"],
-        worker_kwargs={"poll_wait_seconds": 0.05},
+        poll_wait_seconds=0.05,
     )
 
     with pool:
@@ -126,7 +126,7 @@ def test_no_double_claim_under_load(tmp_path: Path) -> None:
         results_factory=partial(SQLiteResultBackend, db_path),
         workers=4,
         task_modules=["tests.integration._pool_tasks"],
-        worker_kwargs={"poll_wait_seconds": 0.05},
+        poll_wait_seconds=0.05,
     )
 
     with pool:
