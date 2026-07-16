@@ -45,10 +45,8 @@ class QueueBackend(ABC):
         """Add a task to the queue.
 
         The task is stored in PENDING state and becomes immediately
-        available for any worker to dequeue.
-
-        Raises 'QueueFull' if the backend rejects the enqueue because
-        of a capacity limit.
+        available for any worker to dequeue (or, if 'available_at' is
+        set, once that time arrives).
         """
 
     @abstractmethod
@@ -106,15 +104,6 @@ class QueueBackend(ABC):
 
         Includes both pending (claimable) and in-flight (claimed) tasks.
         Does not include completed or terminally failed tasks.
-        """
-
-    @abstractmethod
-    def get_task(self, task_id: str) -> Task | None:
-        """Look up a task by id, or return None if not found.
-
-        Used by 'AsyncResult' to check task status from outside the
-        worker. The task may be in any state including completed or
-        failed, if the backend retains them after ack.
         """
 
     def close(self) -> None:  # noqa: B027

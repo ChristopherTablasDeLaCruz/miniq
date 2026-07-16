@@ -15,6 +15,7 @@ import time
 from abc import ABC, abstractmethod
 from pathlib import Path
 
+from miniq._sqlite import open_connection, transaction
 from miniq.exceptions import TaskTimeout
 from miniq.serializers import JSONSerializer, Serializer
 from miniq.task import Task, TaskStatus
@@ -86,8 +87,9 @@ class InMemoryResultBackend(ResultBackend):
 
         with self._available:
             while True:
-                if task_id in self._results:
-                    return self._results[task_id]
+                task = self._results.get(task_id)
+                if task is not None and task.status in (TaskStatus.SUCCESS, TaskStatus.FAILED):
+                    return task
 
                 if deadline is None:
                     self._available.wait()
@@ -136,22 +138,7 @@ class SQLiteResultBackend(ResultBackend):
         self._serializer = serializer if serializer is not None else JSONSerializer()
         self._poll_interval = poll_interval
         self._lock = threading.Lock()
-        self._conn = self._open_connection()
-        self._initialize_schema()
-
-    def _open_connection(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(
-            self._db_path,
-            check_same_thread=False,
-            isolation_level=None,
-        )
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA synchronous=NORMAL")
-        conn.execute("PRAGMA busy_timeout=5000")
-        return conn
-
-    def _initialize_schema(self) -> None:
+        self._conn = open_connection(self._db_path)
         with self._lock:
             self._conn.executescript(self._RESULTS_SCHEMA)
 
@@ -159,29 +146,23 @@ class SQLiteResultBackend(ResultBackend):
         result_blob = (
             self._serializer.serialize(task.result) if task.status is TaskStatus.SUCCESS else None
         )
-        with self._lock:
-            self._conn.execute("BEGIN")
-            try:
-                self._conn.execute(
-                    """
-                    INSERT OR REPLACE INTO task_results (
-                        id, func_path, status, result_json, error, finished_at, stored_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        task.id,
-                        task.func_path,
-                        task.status.value,
-                        result_blob,
-                        task.error,
-                        task.finished_at,
-                        time.time(),
-                    ),
-                )
-                self._conn.execute("COMMIT")
-            except Exception:
-                self._conn.execute("ROLLBACK")
-                raise
+        with self._lock, transaction(self._conn):
+            self._conn.execute(
+                """
+                INSERT OR REPLACE INTO task_results (
+                    id, func_path, status, result_json, error, finished_at, stored_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    task.id,
+                    task.func_path,
+                    task.status.value,
+                    result_blob,
+                    task.error,
+                    task.finished_at,
+                    time.time(),
+                ),
+            )
 
     def get(self, task_id: str) -> Task | None:
         with self._lock:

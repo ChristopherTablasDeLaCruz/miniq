@@ -82,3 +82,12 @@ class TestInMemoryResultBackend:
         backend = InMemoryResultBackend()
         with pytest.raises(TaskTimeout):
             backend.wait("nonexistent", timeout=0.05)
+
+    def test_wait_ignores_non_terminal_task(self) -> None:
+        """wait() only returns finished tasks, matching SQLiteResultBackend."""
+        backend = InMemoryResultBackend()
+        task = Task(func_path="x.y")
+        task.mark_running()
+        backend.store(task)
+        with pytest.raises(TaskTimeout):
+            backend.wait(task.id, timeout=0.05)

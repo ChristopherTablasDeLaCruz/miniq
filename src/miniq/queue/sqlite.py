@@ -12,32 +12,30 @@ Schema:
   - 'available_at' (wall clock) gates when a pending task is claimable.
   - 'claimed_until' (wall clock) records when a claim expires; expired
     claims are reclaimed on the next dequeue.
+  - Task return values are NOT stored here; they belong to the result
+    backend. Failed tasks keep their 'error' text so the dead-letter
+    queue is inspectable (e.g. via 'miniq dlq list').
 
 Connection model:
-  - One sqlite3.Connection per SQLiteQueue instance.
-  - 'check_same_thread=False' plus an internal Lock allows safe
-    multi-threaded access from within one process.
-  - 'isolation_level=None' puts the connection in autocommit mode; we
-    manage transactions explicitly via BEGIN/COMMIT/ROLLBACK so we can
-    choose IMMEDIATE for read-then-write operations.
-  - For multi-process operation (Phase 5), each process should construct
+  - One sqlite3.Connection per SQLiteQueue instance (see miniq._sqlite
+    for pragmas and transaction handling).
+  - For multi-process operation, each process should construct
     its own SQLiteQueue and never share a connection across fork.
 """
 
 from __future__ import annotations
 
-import contextlib
 import sqlite3
 import threading
 import time
-from collections.abc import Iterator
 from pathlib import Path
 
+from miniq._sqlite import open_connection, transaction
 from miniq.queue.base import QueueBackend
 from miniq.serializers import JSONSerializer, Serializer
 from miniq.task import Task, TaskStatus
 
-_SCHEMA = _SCHEMA = """
+_SCHEMA = """
 CREATE TABLE IF NOT EXISTS tasks (
     id TEXT PRIMARY KEY,
     func_path TEXT NOT NULL,
@@ -52,12 +50,11 @@ CREATE TABLE IF NOT EXISTS tasks (
     finished_at REAL,
     available_at REAL,
     claimed_until REAL,
-    result_json BLOB,
     error TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_tasks_dequeue
-    ON tasks (status, priority, available_at, created_at);
+    ON tasks (status, priority DESC, created_at);
 
 CREATE INDEX IF NOT EXISTS idx_tasks_status_claimed_until
     ON tasks (status, claimed_until);
@@ -78,54 +75,15 @@ class SQLiteQueue(QueueBackend):
         self._db_path = str(db_path)
         self._serializer = serializer if serializer is not None else JSONSerializer()
         self._lock = threading.Lock()
-        self._conn = self._open_connection()
-        self._initialize_schema()
-
-    def _open_connection(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(
-            self._db_path,
-            check_same_thread=False,
-            isolation_level=None,
-        )
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA synchronous=NORMAL")
-        conn.execute("PRAGMA busy_timeout=5000")
-        return conn
-
-    def _initialize_schema(self) -> None:
+        self._conn = open_connection(self._db_path)
         with self._lock:
             self._conn.executescript(_SCHEMA)
-            # Migration: priority column was added after the initial schema.
-            # If an existing database doesn't have it, add it now.
-            cursor = self._conn.execute("PRAGMA table_info(tasks)")
-            columns = {row[1] for row in cursor.fetchall()}
-            if "priority" not in columns:
-                self._conn.execute(
-                    "ALTER TABLE tasks ADD COLUMN priority INTEGER NOT NULL DEFAULT 0"
-                )
-
-    @contextlib.contextmanager
-    def _transaction(self, immediate: bool = False) -> Iterator[None]:
-        """Explicit transaction management.
-
-        'immediate=True' acquires SQLite's write lock at BEGIN time,
-        preventing other writers from interleaving. Use for read-then-write
-        sequences like the claim in '_try_claim'.
-        """
-        self._conn.execute("BEGIN IMMEDIATE" if immediate else "BEGIN")
-        try:
-            yield
-            self._conn.execute("COMMIT")
-        except Exception:
-            self._conn.execute("ROLLBACK")
-            raise
 
     def enqueue(self, task: Task) -> None:
         args_blob = self._serializer.serialize(list(task.args))
         kwargs_blob = self._serializer.serialize(task.kwargs)
 
-        with self._lock, self._transaction():
+        with self._lock, transaction(self._conn):
             self._conn.execute(
                 """
                 INSERT INTO tasks (
@@ -180,7 +138,7 @@ class SQLiteQueue(QueueBackend):
 
         with self._lock:
             try:
-                with self._transaction(immediate=True):
+                with transaction(self._conn, immediate=True):
                     cursor = self._conn.execute(
                         """
                         SELECT * FROM tasks
@@ -214,7 +172,7 @@ class SQLiteQueue(QueueBackend):
 
     def _reclaim_expired(self) -> None:
         now = time.time()
-        with self._lock, self._transaction():
+        with self._lock, transaction(self._conn):
             self._conn.execute(
                 """
                 UPDATE tasks
@@ -227,22 +185,18 @@ class SQLiteQueue(QueueBackend):
             )
 
     def ack(self, task: Task) -> None:
-        result_blob = (
-            self._serializer.serialize(task.result) if task.status is TaskStatus.SUCCESS else None
-        )
-        with self._lock, self._transaction():
+        with self._lock, transaction(self._conn):
             self._conn.execute(
                 """
                 UPDATE tasks
-                SET status = ?, finished_at = ?, result_json = ?,
-                    error = ?, claimed_until = NULL
+                SET status = ?, finished_at = ?, error = ?, claimed_until = NULL
                 WHERE id = ?
                 """,
-                (task.status.value, task.finished_at, result_blob, task.error, task.id),
+                (task.status.value, task.finished_at, task.error, task.id),
             )
 
     def nack(self, task: Task, requeue: bool = True) -> None:
-        with self._lock, self._transaction():
+        with self._lock, transaction(self._conn):
             if requeue:
                 self._conn.execute(
                     """
@@ -276,14 +230,6 @@ class SQLiteQueue(QueueBackend):
             )
             return int(cursor.fetchone()[0])
 
-    def get_task(self, task_id: str) -> Task | None:
-        with self._lock:
-            cursor = self._conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,))
-            row = cursor.fetchone()
-            if row is None:
-                return None
-            return self._row_to_task(row)
-
     def close(self) -> None:
         """Close the underlying connection. Idempotent."""
         with self._lock:
@@ -292,11 +238,6 @@ class SQLiteQueue(QueueBackend):
     def _row_to_task(self, row: sqlite3.Row) -> Task:
         args = tuple(self._serializer.deserialize(row["args_json"]))
         kwargs = self._serializer.deserialize(row["kwargs_json"])
-        result = (
-            self._serializer.deserialize(row["result_json"])
-            if row["result_json"] is not None
-            else None
-        )
         return Task(
             func_path=row["func_path"],
             args=args,
@@ -310,6 +251,5 @@ class SQLiteQueue(QueueBackend):
             started_at=row["started_at"],
             finished_at=row["finished_at"],
             available_at=row["available_at"],
-            result=result,
             error=row["error"],
         )

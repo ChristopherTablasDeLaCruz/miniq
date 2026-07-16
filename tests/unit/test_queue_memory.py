@@ -50,7 +50,7 @@ class TestAckNack:
         claimed.mark_success(result=42)
         q.ack(claimed)
         assert q.size() == 0
-        assert q.get_task(claimed.id) is claimed  # still retrievable
+        assert q.dequeue() is None  # not redelivered
 
     def test_nack_with_requeue_makes_task_available(self) -> None:
         q = InMemoryQueue()
@@ -63,7 +63,7 @@ class TestAckNack:
         assert reclaimed is claimed
         assert reclaimed.status is TaskStatus.RUNNING
 
-    def test_nack_without_requeue_sends_to_dlq(self) -> None:
+    def test_nack_without_requeue_removes_task(self) -> None:
         q = InMemoryQueue()
         t = Task(func_path="x.y")
         q.enqueue(t)
@@ -72,7 +72,7 @@ class TestAckNack:
         claimed.mark_failed(error="boom")
         q.nack(claimed, requeue=False)
         assert q.size() == 0
-        assert q.get_task(claimed.id) is claimed  # still retrievable via DLQ
+        assert q.dequeue() is None  # not redelivered
 
 
 class TestVisibilityTimeout:

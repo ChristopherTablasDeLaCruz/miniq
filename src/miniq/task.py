@@ -82,11 +82,20 @@ class Task:
         self.error = error
         self.finished_at = time.time()
 
+    def mark_pending(self) -> None:
+        """Transition back to PENDING and clear the start time.
+
+        Used when a claim is released (nack with requeue) or a visibility
+        timeout expires and the task becomes claimable again.
+        """
+        self.status = TaskStatus.PENDING
+        self.started_at = None
+
 
 class AsyncResult:
     """A handle to a task's eventual outcome.
 
-    Returned by 'Task.delay()'. Callers use 'get()' to
+    Returned by 'TaskWrapper.delay()'. Callers use 'get()' to
     block until the task finishes and either receive its return value
     or have its exception re-raised as a 'TaskFailed'.
     """

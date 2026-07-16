@@ -76,6 +76,13 @@ class TestTaskTransitions:
         assert t.error == "boom"
         assert t.finished_at is not None
 
+    def test_mark_pending_resets_running_task(self) -> None:
+        t = Task(func_path="x.y")
+        t.mark_running()
+        t.mark_pending()
+        assert t.status is TaskStatus.PENDING
+        assert t.started_at is None
+
 
 class _FakeBackend(ResultBackend):
     """Minimal in-memory stand-in for ResultBackend used in AsyncResult tests.

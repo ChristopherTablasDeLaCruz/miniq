@@ -7,6 +7,7 @@ these tests so the same bodies run against both backends.
 
 from __future__ import annotations
 
+import sqlite3
 import threading
 import time
 from pathlib import Path
@@ -20,6 +21,16 @@ from miniq.task import Task, TaskStatus
 @pytest.fixture
 def queue(tmp_path: Path) -> SQLiteQueue:
     return SQLiteQueue(tmp_path / "test.db")
+
+
+def _stored_row(db_path: Path, task_id: str) -> sqlite3.Row | None:
+    """Read a task row directly, the way the CLI inspects the database."""
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        return conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+    finally:
+        conn.close()
 
 
 class TestEnqueueDequeue:
@@ -53,7 +64,9 @@ class TestEnqueueDequeue:
 
 
 class TestAckNack:
-    def test_ack_removes_task_from_active(self, queue: SQLiteQueue) -> None:
+    def test_ack_removes_task_from_active(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "test.db"
+        queue = SQLiteQueue(db_path)
         t = Task(func_path="x.y")
         queue.enqueue(t)
         claimed = queue.dequeue()
@@ -61,10 +74,11 @@ class TestAckNack:
         claimed.mark_success(result=42)
         queue.ack(claimed)
         assert queue.size() == 0
-        stored = queue.get_task(claimed.id)
-        assert stored is not None
-        assert stored.status is TaskStatus.SUCCESS
-        assert stored.result == 42
+        assert queue.dequeue() is None  # not redelivered
+        row = _stored_row(db_path, claimed.id)
+        assert row is not None
+        assert row["status"] == TaskStatus.SUCCESS.value
+        queue.close()
 
     def test_nack_with_requeue_makes_task_available(self, queue: SQLiteQueue) -> None:
         t = Task(func_path="x.y")
@@ -76,7 +90,9 @@ class TestAckNack:
         assert reclaimed is not None
         assert reclaimed.id == t.id
 
-    def test_nack_without_requeue_sends_to_dlq(self, queue: SQLiteQueue) -> None:
+    def test_nack_without_requeue_sends_to_dlq(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "test.db"
+        queue = SQLiteQueue(db_path)
         t = Task(func_path="x.y")
         queue.enqueue(t)
         claimed = queue.dequeue()
@@ -84,9 +100,13 @@ class TestAckNack:
         claimed.mark_failed(error="boom")
         queue.nack(claimed, requeue=False)
         assert queue.size() == 0
-        stored = queue.get_task(claimed.id)
-        assert stored is not None
-        assert stored.status is TaskStatus.FAILED
+        assert queue.dequeue() is None  # not redelivered
+        # The failed row stays inspectable (this is what `miniq dlq list` reads).
+        row = _stored_row(db_path, claimed.id)
+        assert row is not None
+        assert row["status"] == TaskStatus.FAILED.value
+        assert row["error"] == "boom"
+        queue.close()
 
 
 class TestVisibilityTimeout:
@@ -219,8 +239,9 @@ class TestPriority:
 
         q2 = SQLiteQueue(db_path)
         try:
-            stored = q2.get_task(task.id)
-            assert stored is not None
-            assert stored.priority == 7
+            claimed = q2.dequeue()
+            assert claimed is not None
+            assert claimed.id == task.id
+            assert claimed.priority == 7
         finally:
             q2.close()

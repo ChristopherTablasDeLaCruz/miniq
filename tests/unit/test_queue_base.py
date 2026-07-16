@@ -48,7 +48,4 @@ class TestQueueBackend:
             def size(self) -> int:
                 return 0
 
-            def get_task(self, task_id: str) -> Task | None:
-                return None
-
         FullQueue()  # should not raise
