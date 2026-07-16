@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from miniq.exceptions import TaskNotRegistered
-from miniq.registry import clear, is_registered, lookup, register
+from miniq.registry import clear, lookup, register
 
 
 def _example_func(x: int) -> int:
@@ -27,17 +27,14 @@ class TestRegistry:
         with pytest.raises(TaskNotRegistered):
             lookup("nonexistent.path")
 
-    def test_is_registered(self) -> None:
-        assert not is_registered("test.foo")
-        register("test.foo", _example_func)
-        assert is_registered("test.foo")
-
     def test_clear_removes_all(self) -> None:
         register("test.foo", _example_func)
         register("test.bar", _example_func)
         clear()
-        assert not is_registered("test.foo")
-        assert not is_registered("test.bar")
+        with pytest.raises(TaskNotRegistered):
+            lookup("test.foo")
+        with pytest.raises(TaskNotRegistered):
+            lookup("test.bar")
 
     def test_re_register_overwrites(self) -> None:
         def other_func(x: int) -> int:

@@ -2,9 +2,9 @@
 
 A Serializer converts arbitrary Python values to and from bytes. The queue
 backend uses a serializer to encode task payloads before persisting them and
-to decode them when handing tasks to workers. The default serializer will be JSONSerializer,
-which constrains task arguments to JSON-safe types in exchange for safety and portability.
-PickleSerializer will exist for users who need richer types and accept the security tradeoffs.
+to decode them when handing tasks to workers. The default (and currently only)
+serializer is JSONSerializer, which constrains task arguments to JSON-safe
+types in exchange for safety and portability.
 """
 
 from __future__ import annotations

@@ -1,7 +1,7 @@
 """Typed exception hierarchy for miniq.
 
 All exceptions raised by miniq inherit from MiniqError. Callers can catch
-specific failure modes (TaskTimeout, QueueFull) rather than bare Exception,
+specific failure modes (TaskTimeout, TaskFailed) rather than bare Exception,
 which keeps error handling explicit and debuggable.
 """
 
@@ -17,19 +17,13 @@ class TaskError(MiniqError):
 
 
 class TaskFailed(TaskError):
-    """Raised when a task function raises an unhandled exception during execution.
+    """Raised when a task ended in FAILED status.
 
-    The original exception is preserved on the `original_exception` attribute
-    so callers can inspect or re-raise it.
+    Carries the stored error message (exception type and text) from the
+    worker that ran the task. The original exception object is not
+    available: the failure happened in another process and only the
+    message survives serialization.
     """
-
-    def __init__(
-        self,
-        message: str,
-        original_exception: BaseException | None = None,
-    ) -> None:
-        super().__init__(message)
-        self.original_exception = original_exception
 
 
 class TaskTimeout(TaskError):
@@ -49,18 +43,6 @@ class TaskNotRegistered(TaskError):
     Usually means the worker process did not import the module that defines
     the task, so the @task decorator never ran for it.
     """
-
-
-class BackendError(MiniqError):
-    """Base class for errors raised by storage backends."""
-
-
-class QueueFull(BackendError):
-    """Raised when a backend rejects an enqueue because it is at capacity."""
-
-
-class QueueEmpty(BackendError):
-    """Raised when dequeue is called with no wait and the queue is empty."""
 
 
 class SerializationError(MiniqError):

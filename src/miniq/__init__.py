@@ -18,10 +18,7 @@ Quick start:
 
 from miniq.app import Miniq, TaskWrapper
 from miniq.exceptions import (
-    BackendError,
     MiniqError,
-    QueueEmpty,
-    QueueFull,
     SerializationError,
     TaskError,
     TaskFailed,
@@ -44,11 +41,10 @@ from miniq.serializers import JSONSerializer, Serializer
 from miniq.task import AsyncResult, Task, TaskStatus
 from miniq.worker import Worker
 
-__version__ = "0.0.1"
+__version__ = "0.1.0"
 
 __all__ = [
     "AsyncResult",
-    "BackendError",
     "ExponentialBackoff",
     "FixedDelay",
     "InMemoryQueue",
@@ -59,8 +55,6 @@ __all__ = [
     "MiniqError",
     "NoRetry",
     "QueueBackend",
-    "QueueEmpty",
-    "QueueFull",
     "ResultBackend",
     "RetryPolicy",
     "SQLiteQueue",

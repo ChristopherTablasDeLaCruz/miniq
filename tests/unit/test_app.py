@@ -8,7 +8,7 @@ from datetime import datetime
 import pytest
 
 from miniq.app import Miniq, TaskWrapper
-from miniq.registry import clear, is_registered
+from miniq.registry import clear, lookup
 from miniq.task import AsyncResult
 
 
@@ -39,7 +39,7 @@ class TestMiniq:
         def add(a: int, b: int) -> int:
             return a + b
 
-        assert is_registered(add.func_path)
+        assert lookup(add.func_path)(2, 3) == 5
 
     def test_direct_call_runs_synchronously(self) -> None:
         app = Miniq()

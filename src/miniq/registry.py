@@ -41,11 +41,6 @@ def lookup(func_path: str) -> Callable[..., Any]:
     return _registry[func_path]
 
 
-def is_registered(func_path: str) -> bool:
-    """Return True if a function is registered under this path."""
-    return func_path in _registry
-
-
 def clear() -> None:
     """Remove all registered functions. Intended for tests."""
     _registry.clear()

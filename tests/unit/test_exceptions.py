@@ -5,10 +5,7 @@ from __future__ import annotations
 import pytest
 
 from miniq.exceptions import (
-    BackendError,
     MiniqError,
-    QueueEmpty,
-    QueueFull,
     SerializationError,
     TaskError,
     TaskFailed,
@@ -27,9 +24,6 @@ class TestHierarchy:
             TaskFailed,
             TaskTimeout,
             TaskNotRegistered,
-            BackendError,
-            QueueFull,
-            QueueEmpty,
             SerializationError,
         ],
     )
@@ -40,20 +34,8 @@ class TestHierarchy:
     def test_task_failed_is_task_error(self) -> None:
         assert issubclass(TaskFailed, TaskError)
 
-    def test_queue_full_is_backend_error(self) -> None:
-        assert issubclass(QueueFull, BackendError)
-
 
 class TestTaskFailed:
-    def test_stores_original_exception(self) -> None:
-        original = ValueError("boom")
-        err = TaskFailed("task blew up", original_exception=original)
-        assert err.original_exception is original
-
-    def test_original_exception_optional(self) -> None:
-        err = TaskFailed("task blew up")
-        assert err.original_exception is None
-
     def test_message_preserved(self) -> None:
         err = TaskFailed("task blew up")
         assert str(err) == "task blew up"
